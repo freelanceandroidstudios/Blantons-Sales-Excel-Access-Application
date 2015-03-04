@@ -1,0 +1,506 @@
+Private Const MONDAY As Integer = 6
+Dim wbNumbers As Workbook
+Dim wbMain As Workbook
+Private DATASHEETLOC As String
+Private Const FINDSTRING As Variant = "Grand Total"
+
+Private Sub Workbook_BeforeClose(Cancel As Boolean)
+    
+End Sub
+
+Private Sub Workbook_BeforeSave(ByVal SaveAsUI As Boolean, Cancel As Boolean)
+   
+    
+    
+End Sub
+
+
+'module to run when workbook is opened by user
+'module gets the current weather information from the datasheet WB
+Private Sub Workbook_Open()
+'Sheets("Company Stats + Goals").Unprotect 'put locks on main sheet for hide formulas
+DATASHEETLOC = ThisWorkbook.Path
+
+Application.ScreenUpdating = False
+
+    Call SetUpWeatherData 'sub to refresh web data source for the new week
+    'build mainsheet with temperatures and conditions
+    'Sheets("Company Stats + Goals").Unprotect 'put locks on main sheet for hide formulas
+    Call Populate_Temperatures
+    Call Populate_Conditions
+   
+    'Call GetData 'populate all required cells in main sheet with data from database stored in
+    'pivot chart on sheet 2 in BlantonsDataSheets
+    'Sheets("Company Stats + Goals").Protect 'put locks on main sheet for hide formulas
+    
+    Call ResetUpValues
+    Call PopulateWeeklyTotals
+    Call setUpMonthlyTotals
+    Call ProtectForms
+    
+    Workbooks("BlantonsExcellProgramInputSheet").Sheets("Company Stats + Goals").Select
+    
+    
+    Application.OnTime Now() + TimeValue("00:01:30"), "BlantonsExcellProgramInputSheet.xlsm!RunEveryTwoMinutes.RunEveryTwoMinutes"
+    
+End Sub
+
+Public Sub ProtectForms()
+
+With Workbooks("BlantonsExcellProgramInputSheet").Sheets("Company Stats + Goals").Select
+    
+    Range("F9:G9").Select
+    ActiveCell.FormulaR1C1 = "=R[-2]C-R[-1]C"
+    Range("H9:I9").Select
+    ActiveCell.FormulaR1C1 = "=R[-2]C-R[-1]C"
+    Range("H10").Select
+    Range("J9:K9").Select
+    ActiveCell.FormulaR1C1 = "=R[-2]C-R[-1]C"
+    Range("L9:M9").Select
+    ActiveCell.FormulaR1C1 = "=R[-2]C-R[-1]C"
+    Range("N9:O9").Select
+    ActiveCell.FormulaR1C1 = "=R[-2]C-R[-1]C"
+    Range("P9:Q9").Select
+    ActiveCell.FormulaR1C1 = "=R[-2]C-R[-1]C"
+    Range("R9").Select
+    ActiveCell.FormulaR1C1 = "=(R[-2]C-R[-1]C)"
+    
+End With
+
+End Sub
+
+Function ActivateWB(wbname As String)
+  'Open wbname.
+  Workbooks.Open Filename:=ThisWorkbook.Path & "\" & wbname
+  
+End Function
+
+Public Sub SaveDataToDB(dataDate As Variant, InRevAct As Variant, InRevGoal As Variant, SchLeadsAct As Variant, _
+    SchLeadsGoal As Variant, SchInstallDayAct As Variant, SchInstallDayGoal As Variant, SchHVACRepairsAct As Variant, _
+    SchHVACRepairsGoal As Variant, SchHVACAct As Variant)
+    
+    sSQL = "SELECT * FROM BlantonsStatsGoals WHERE DataDate = #" & dataDate & "#"
+    Dim cn As ADODB.Connection, rs As ADODB.Recordset
+    Dim strFile As String
+    strFile = ThisWorkbook.Path & "\" & "BlantonsStatsGoalsDatabase.accdb"
+    ' connect to the Access database
+    Set cn = New ADODB.Connection
+    With cn
+    .Provider = "Microsoft.ACE.OLEDB.12.0"
+    .Open "Data Source = """ & strFile & """"
+
+    End With
+    Dim RecordCounr As Integer
+    
+    Set rs = New ADODB.Recordset
+    rs.Open sSQL, cn, 3, 3
+    RecordCount = rs.RecordCount
+    If RecordCount > 0 Then
+        If Not rs.EOF And Not rs.BOF Then
+            With rs
+                .Fields("InRevAct") = InRevAct
+                .Fields("InRevGoal") = InRevGoal
+                .Fields("SchLeadsAct") = SchLeadsAct
+                .Fields("SchLeadsGoal") = SchLeadsGoal
+                .Fields("SchInstallDayAct") = SchInstallDayAct
+                .Fields("SchInstallDayGoal") = SchInstallDayGoal
+                .Fields("SchHVACRepairsAct") = SchHVACRepairsAct
+                .Fields("SchHVACRepairsGoal") = SchHVACRepairsGoal
+                .Fields("SchHVACAct") = SchHVACAct
+                .Update
+            End With
+        End If
+    End If
+    rs.Close
+    cn.Close
+    
+End Sub
+
+Public Sub GetValuesFromDB(dataDate As Variant, i As Integer)
+
+    sSQL = "SELECT * FROM BlantonsStatsGoals WHERE DataDate = #" & dataDate & "#"
+    Dim cn As ADODB.Connection, rs As ADODB.Recordset
+    Dim strFile As String
+    strFile = ThisWorkbook.Path & "\" & "BlantonsStatsGoalsDatabase.accdb"
+    ' connect to the Access database
+    Set cn = New ADODB.Connection
+    With cn
+    .Provider = "Microsoft.ACE.OLEDB.12.0"
+    .Open "Data Source = """ & strFile & """"
+
+    End With
+    Dim RecordCount As Integer
+    
+    Set rs = New ADODB.Recordset
+    rs.Open sSQL, cn, 3, 3
+    RecordCount = rs.RecordCount
+    If RecordCount > 0 Then
+        If Not rs.EOF And Not rs.BOF Then
+            With rs
+            'sets each cells with the value found in the database recordset
+                Cells(7, i).Value = .Fields("InRevAct")
+                Cells(8, i).Value = .Fields("InRevGoal")
+                Cells(11, i).Value = .Fields("SchLeadsAct")
+                Cells(12, i).Value = .Fields("SchLeadsGoal")
+                Cells(15, i).Value = .Fields("SchInstallDayAct")
+                Cells(16, i).Value = .Fields("SchInstallDayGoal")
+                Cells(19, i).Value = .Fields("SchHVACRepairsAct")
+                Cells(20, i).Value = .Fields("SchHVACRepairsGoal")
+                Cells(23, i).Value = .Fields("SchHVACAct")
+
+            End With
+        End If
+    End If
+    rs.Close
+    cn.Close
+End Sub
+
+Public Sub RefreshData()
+    ActivateWB ("BlantonsDataSheets.xlsm")
+    ActiveWorkbook.Connections("BlantonsStatsGoalsDatabase").Refresh
+    ActiveWorkbook.Close saveChanges:=True
+End Sub
+
+Public Sub ResetUpValues()
+Dim i As Integer
+Workbooks("BlantonsExcellProgramInputSheet").Sheets("Company Stats + Goals").Select
+ For i = 6 To 16
+        Call GetValuesFromDB(Cells(1, i).Value, i)
+        i = i + 1
+    Next i
+End Sub
+
+Public Sub setUpMonthlyTotals()
+  
+
+ With Workbooks("BlantonsExcellProgramInputSheet").Sheets("Company Stats + Goals")
+ 
+    Cells(7, 19).Select
+        ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(""Grand Total"",'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotDataCurrentMonth'!R1:R1048576,2,FALSE)"
+    Cells(8, 19).Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(""Grand Total"",'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotDataCurrentMonth'!R1:R1048576,3,FALSE)"
+    Cells(11, 19).Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(""Grand Total"",'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotDataCurrentMonth'!R1:R1048576,4,FALSE)"
+    Cells(12, 19).Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(""Grand Total"",'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotDataCurrentMonth'!R1:R1048576,5,FALSE)"
+    Cells(15, 19).Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(""Grand Total"",'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotDataCurrentMonth'!R1:R1048576,6,FALSE)"
+    Cells(16, 19).Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(""Grand Total"",'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotDataCurrentMonth'!R1:R1048576,7,FALSE)"
+    
+    Cells(19, 19).Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(""Grand Total"",'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotDataCurrentMonth'!R1:R1048576,8,FALSE)"
+    Cells(20, 19).Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(""Grand Total"",'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotDataCurrentMonth'!R1:R1048576,9,FALSE)"
+    Cells(23, 19).Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(""Grand Total"",'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotDataCurrentMonth'!R1:R1048576,10,FALSE)"
+    Cells(1, 1).Select
+    End With
+    
+
+
+    
+
+
+End Sub
+Public Sub SetUpWeatherData()
+    ActivateWB ("BlantonsDataSheets.xlsm")
+    'data connection refresh on opening of file but run it twice to make sure
+    ActiveWorkbook.Connections("WeatherData").Refresh
+    ActiveWorkbook.Connections("BlantonsStatsGoalsDatabase").Refresh
+    ActiveWorkbook.Sheets("WeatherData").Select
+    ActiveWindow.SmallScroll Down:=18
+    Rows("56:56").Select
+    Selection.Delete Shift:=xlUp 'deletes the text cells that contains no needed data
+    Selection.Delete Shift:=xlUp
+    Selection.Delete Shift:=xlUp
+    Selection.Delete Shift:=xlUp
+    Selection.Delete Shift:=xlUp
+    Selection.Delete Shift:=xlUp
+
+    ActiveWorkbook.Close saveChanges:=True
+    
+End Sub
+Public Sub GetData()
+
+     '''FIRST SECTION FIRST @ ROWS
+   With Workbooks("BlantonsExcellProgramInputSheet").Sheets("Company Stats + Goals")
+   
+     
+    Range("F7:G7").Select
+    ActiveCell.FormulaR1C1 = "=VLOOKUP(R[-6]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-6]:R[1048569],2,FALSE)"
+    Range("H7:I7").Select
+    ActiveCell.FormulaR1C1 = "=VLOOKUP(R[-6]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-6]:R[1048569],2,FALSE)"
+    Range("J7:K7").Select
+    ActiveCell.FormulaR1C1 = "=VLOOKUP(R[-6]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-6]:R[1048569],2,FALSE)"
+    Range("L7:M7").Select
+    ActiveCell.FormulaR1C1 = "=VLOOKUP(R[-6]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-6]:R[1048569],2,FALSE)"
+    Range("N7:O7").Select
+    ActiveCell.FormulaR1C1 = "=VLOOKUP(R[-6]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-6]:R[1048569],2,FALSE)"
+    Range("P7:Q7").Select
+    ActiveCell.FormulaR1C1 = "=VLOOKUP(R[-6]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-6]:R[1048569],2,FALSE)"
+    Range("F8:G8").Select
+    ActiveCell.FormulaR1C1 = "=VLOOKUP(R[-7]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-7]:R[1048568],3,FALSE)"
+    Range("H8:I8").Select
+    ActiveCell.FormulaR1C1 = "=VLOOKUP(R[-7]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-7]:R[1048568],3,FALSE)"
+    Range("J8:K8").Select
+    ActiveCell.FormulaR1C1 = "=VLOOKUP(R[-7]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-7]:R[1048568],3,FALSE)"
+    
+    Range("L8:M8").Select
+    ActiveCell.FormulaR1C1 = "=VLOOKUP(R[-7]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-7]:R[1048568],3,FALSE)"
+    Range("N8:O8").Select
+    ActiveCell.FormulaR1C1 = "=VLOOKUP(R[-7]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-7]:R[1048568],3,FALSE)"
+    Range("P8:Q8").Select
+    ActiveCell.FormulaR1C1 = "=VLOOKUP(R[-7]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-7]:R[1048568],3,FALSE)"
+    Range("P9:Q9").Select
+    'END FIRST TWO ROWS
+    
+    'START NEXT TWO ROWS
+  
+    Range("F11:G11").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-10]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-10]:R[1048565],4,FALSE)"
+    Range("H11:I11").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-10]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-10]:R[1048565],4,FALSE)"
+    Range("J11:K11").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-10]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-10]:R[1048565],4,FALSE)"
+    Range("L11:M11").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-10]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-10]:R[1048565],4,FALSE)"
+    Range("N11:O11").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-10]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-10]:R[1048565],4,FALSE)"
+    Range("P11:Q11").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-10]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-10]:R[1048565],4,FALSE)"
+    Range("F12:G12").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-11]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-11]:R[1048564],5,FALSE)"
+    Range("H12:I12").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-11]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-11]:R[1048564],5,FALSE)"
+    Range("J12:K12").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-11]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-11]:R[1048564],5,FALSE)"
+    Range("L12:M12").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-11]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-11]:R[1048564],5,FALSE)"
+    Range("N12:O12").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-11]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-11]:R[1048564],5,FALSE)"
+    Range("P12:Q12").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-11]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-11]:R[1048564],5,FALSE)"
+    Range("P13").Select
+    'END ROWS 3-4
+    
+    'START ROW 5-6
+  
+    Range("F15:G15").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-14]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-14]:R[1048561],6,FALSE)"
+    Range("H15:I15").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-14]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-14]:R[1048561],6,FALSE)"
+    Range("J15:K15").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-14]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-14]:R[1048561],6,FALSE)"
+    Range("L15:M15").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-14]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-14]:R[1048561],6,FALSE)"
+    Range("N15:O15").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-14]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-14]:R[1048561],6,FALSE)"
+    Range("P15:Q15").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-14]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-14]:R[1048561],6,FALSE)"
+    Range("F16:G16").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-15]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-15]:R[1048560],7,FALSE)"
+    Range("H16:I16").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-15]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-15]:R[1048560],7,FALSE)"
+    Range("J16:K16").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-15]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-15]:R[1048560],7,FALSE)"
+    Range("L16:M16").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-15]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-15]:R[1048560],7,FALSE)"
+    Range("N16:O16").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-15]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-15]:R[1048560],7,FALSE)"
+    Range("P16:Q16").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-15]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-15]:R[1048560],7,FALSE)"
+    Range("P17").Select
+    'END ROW 6-7
+    'START ROW 8-9
+   
+    Range("F19:G19").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-18]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-18]:R[1048557],8,FALSE)"
+    Range("F20:G20").Select
+    Range("H19:I19").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-18]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-18]:R[1048557],8,FALSE)"
+    Range("J19:K19").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-18]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-18]:R[1048557],8,FALSE)"
+    Range("L19:M19").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-18]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-18]:R[1048557],8,FALSE)"
+    Range("N19:O19").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-18]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-18]:R[1048557],8,FALSE)"
+    Range("P19:Q19").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-18]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-18]:R[1048557],8,FALSE)"
+    Range("F20:G20").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-19]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-19]:R[1048556],9,FALSE)"
+    Range("H20:I20").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-19]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-19]:R[1048556],9,FALSE)"
+    Range("J20:K20").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-19]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-19]:R[1048556],9,FALSE)"
+    Range("L20:M20").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-19]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-19]:R[1048556],9,FALSE)"
+    Range("N20:O20").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-19]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-19]:R[1048556],9,FALSE)"
+    Range("P20:Q20").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-19]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-19]:R[1048556],9,FALSE)"
+    Range("P21:Q21").Select
+    'END ROWS 8-9
+    'START ROWS 10-11
+    
+    Range("F23:G23").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-22]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-22]:R[1048553],10,FALSE)"
+    Range("H23:I23").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-22]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-22]:R[1048553],10,FALSE)"
+    Range("J23:K23").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-22]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-22]:R[1048553],10,FALSE)"
+    Range("L23:M23").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-22]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-22]:R[1048553],10,FALSE)"
+    Range("N23:O23").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-22]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-22]:R[1048553],10,FALSE)"
+    Range("P23:Q23").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(R[-22]C,'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]PivotData'!R[-22]:R[1048553],10,FALSE)"
+    Range("P24").Select
+    'END OF UPDATING DATA FROM DB
+
+    End With
+    
+    Call PopulateWeeklyTotals
+    
+
+End Sub
+
+Public Sub Populate_Conditions()
+    
+   With Workbooks("BlantonsExcellProgramInputSheet").Sheets("Company Stats + Goals")
+    Range("F5:G5").Select
+    ActiveCell.FormulaR1C1 = "='" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeatherData'!R[26]C[-4]"
+    Range("H5:I5").Select
+    ActiveCell.FormulaR1C1 = "='" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeatherData'!R[31]C[-6]"
+    Range("J5:K5").Select
+    ActiveCell.FormulaR1C1 = "='" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeatherData'!R[36]C[-8]"
+    Range("L5:M5").Select
+    ActiveCell.FormulaR1C1 = "='" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeatherData'!R[41]C[-10]"
+    Range("N5:O5").Select
+    ActiveCell.FormulaR1C1 = "='" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeatherData'!R[46]C[-12]"
+    Range("P5:Q5").Select
+    ActiveCell.FormulaR1C1 = "='" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeatherData'!R[51]C[-14]"
+    Range("P6").Select
+    
+    End With
+    
+   
+End Sub
+
+Public Sub Populate_Temperatures()
+    With Workbooks("BlantonsExcellProgramInputSheet").Sheets("Company Stats + Goals")
+    
+    Range("G3").FormulaR1C1 = "=MID('" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeatherData'!R[32]C[-5],4,3)"
+    Range("G4").FormulaR1C1 = "=MID('" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeatherData'!R[31]C[-5],10,3)"
+    Range("I3").FormulaR1C1 = "=MID('" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeatherData'!R[37]C[-7],4,3)"
+    Range("I4").FormulaR1C1 = "=MID('" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeatherData'!R[36]C[-7],10,3)"
+    Range("K3").Select
+    ActiveCell.FormulaR1C1 = "=MID('" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeatherData'!R[42]C[-9],4,3)"
+    Range("K4").Select
+    ActiveCell.FormulaR1C1 = "=MID('" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeatherData'!R[41]C[-9],10,3)"
+    Range("M3").Select
+    ActiveCell.FormulaR1C1 = "=MID('" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeatherData'!R[47]C[-11],4,3)"
+    Range("M4").Select
+    ActiveCell.FormulaR1C1 = "=MID('" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeatherData'!R[46]C[-11],10,3)"
+    Range("O3").Select
+    ActiveCell.FormulaR1C1 = "=MID('" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeatherData'!R[52]C[-13],4,3)"
+    Range("O4").Select
+    ActiveCell.FormulaR1C1 = "=MID('" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeatherData'!R[51]C[-13],10,3)"
+    Range("Q3").Select
+    ActiveCell.FormulaR1C1 = "=MID('" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeatherData'!R[57]C[-15],4,3)"
+    Range("Q4").Select
+    ActiveCell.FormulaR1C1 = "=MID('" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeatherData'!R[56]C[-15],10,3)"
+    Range("P5:Q5").Select
+    End With
+    
+
+End Sub
+
+Public Sub PopulateWeeklyTotals()
+
+ With Workbooks("BlantonsExcellProgramInputSheet").Sheets("Company Stats + Goals")
+ 
+    Range("R7").Select
+        ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(""Grand Total"",'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeeklyTotals'!R1:R1048576,2,FALSE)"
+    Range("R8").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(""Grand Total"",'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeeklyTotals'!R1:R1048576,3,FALSE)"
+    Range("R11").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(""Grand Total"",'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeeklyTotals'!R1:R1048576,4,FALSE)"
+    Range("R12").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(""Grand Total"",'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeeklyTotals'!R1:R1048576,5,FALSE)"
+    Range("R15").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(""Grand Total"",'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeeklyTotals'!R1:R1048576,6,FALSE)"
+    Range("R16").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(""Grand Total"",'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeeklyTotals'!R1:R1048576,7,FALSE)"
+    Range("R17").Select
+    ActiveWindow.SmallScroll Down:=6
+    Range("R19").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(""Grand Total"",'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeeklyTotals'!R1:R1048576,8,FALSE)"
+    Range("R20").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(""Grand Total"",'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeeklyTotals'!R1:R1048576,9,FALSE)"
+    Range("R23").Select
+    ActiveCell.FormulaR1C1 = _
+        "=VLOOKUP(""Grand Total"",'" & ThisWorkbook.Path & "\[BlantonsDataSheets.xlsm]WeeklyTotals'!R1:R1048576,10,FALSE)"
+    Cells(1, 1).Select
+    End With
+    
+End Sub
